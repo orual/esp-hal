@@ -13,7 +13,7 @@
 #![no_std]
 
 use core::{
-    arch::asm,
+    arch::naked_asm,
     ptr::{addr_of, addr_of_mut},
 };
 
@@ -141,7 +141,7 @@ extern "C" {
 #[doc(hidden)]
 #[inline]
 unsafe fn set_vecbase(base: *const u32) {
-    asm!("wsr.vecbase {0}", in(reg) base, options(nostack));
+    naked_asm!("wsr.vecbase {0}", in(reg) base, options(nostack));
 }
 
 #[doc(hidden)]
@@ -155,7 +155,7 @@ pub extern "Rust" fn default_mem_hook() -> bool {
 #[macro_export]
 macro_rules! cfg_asm {
     (@inner, [$($x:tt)*], [$($opts:tt)*], ) => {
-        asm!($($x)* $($opts)*)
+        naked_asm!($($x)* $($opts)*)
     };
     (@inner, [$($x:tt)*], [$($opts:tt)*], #[cfg($meta:meta)] $asm:literal, $($rest:tt)*) => {
         #[cfg($meta)]
