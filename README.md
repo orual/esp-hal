@@ -1,72 +1,118 @@
-# esp-hal
+# esp-hal - ESP32 Hardware Abstraction Layer (Symltech Fork)
 
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/esp-rs/esp-hal/ci.yml?labelColor=1C2C2E&label=CI&logo=github&style=flat-square)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/esp-rs/esp-hal/hil.yml?labelColor=1C2C2E&label=HIL&logo=github&style=flat-square&event=merge_group)
-![MIT/Apache-2.0 licensed](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?labelColor=1C2C2E&style=flat-square)
-[![Matrix](https://img.shields.io/matrix/esp-rs:matrix.org?labelColor=1C2C2E&label=join%20matrix&color=BEC5C9&logo=matrix&style=flat-square)](https://matrix.to/#/#esp-rs:matrix.org)
+**Fork of [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) with critical PSRAM fixes**
 
-Bare-metal (`no_std`) hardware abstraction layer for Espressif devices. Currently supports, to varying degrees, the following devices:
+This fork contains essential bug fixes for ESP32-S3 PSRAM memory management that are critical for the Symltech T-Deck hardware to function properly.
 
-- ESP32 Series: _ESP32_
-- ESP32-C Series: _ESP32-C2, ESP32-C3, ESP32-C6_
-- ESP32-H Series: _ESP32-H2_
-- ESP32-S Series: _ESP32-S2, ESP32-S3_
+## Why This Fork Exists
 
-Additionally provides limited support for programming the low-power RISC-V cores found on the _ESP32-C6_, _ESP32-S2_, and _ESP32-S3_ via the [esp-lp-hal] package.
+The upstream ESP-HAL had a critical PSRAM memory mapping bug that didn't account for unmapped pages between allocated memory regions, causing memory corruption and device crashes on ESP32-S3 with external PSRAM.
 
-These packages are all `no_std`; if you are looking for `std` support, please use [esp-idf-svc] instead.
+## Critical Fix: PSRAM Memory Management
 
-If you have any questions, comments, or concerns, please [open an issue], [start a new discussion], or join us on [Matrix]. For additional information regarding any of the crates in this repository, please refer to the relevant crate's README.
+### Problem
+The original PSRAM initialization code had incorrect memory mapping calculation that caused:
+- Memory corruption when using PSRAM
+- Device crashes and instability  
+- Incorrect PSRAM start address calculation
 
-> [!NOTE]
->
-> This project is still in the relatively early stages of development, and as such there should be no expectation of API stability. A significant number of peripherals currently have drivers implemented but have varying levels of functionality. For most tasks, this should be usable already, however some more advanced or uncommon features may not yet be implemented.
+### Solution
+**Commit**: `f41a06f2` - "psram fix"
 
-[esp-lp-hal]: https://github.com/esp-rs/esp-hal/tree/main/esp-lp-hal
-[esp-idf-svc]: https://github.com/esp-rs/esp-idf-svc
-[open an issue]: https://github.com/esp-rs/esp-hal/issues/new
-[start a new discussion]: https://github.com/esp-rs/esp-hal/discussions/new
-[matrix]: https://matrix.to/#/#esp-rs:matrix.org
+Fixed PSRAM initialization in `esp-hal/src/soc/esp32s3/psram.rs`:
 
-## Getting Started
+```rust
+// Before: Incorrect PSRAM start calculation
+let psram_start = PSRAM_BASE + (page_count * PAGE_SIZE);
 
-For information relating to the development of Rust applications on ESP devices, please first read [The Rust on ESP Book].
+// After: Properly account for unmapped pages
+let psram_start = calculate_psram_start_with_unmapped_pages();
+```
 
-For information about the HAL and how to use it in your own projects, please refer to the [documentation].
+### Technical Details
 
-[The Rust on ESP Book]: https://esp-rs.github.io/book/
-[documentation]: https://docs.esp-rs.org/esp-hal/
+The fix addresses:
+- **MMU Table Iteration**: Corrected page mapping calculation to skip unmapped regions
+- **Memory Layout**: Fixed PSRAM base address calculation for ESP32-S3
+- **Page Management**: Proper handling of memory page boundaries and unmapped areas
 
-## Resources
+## Impact on Symltech
 
-- [The Rust Programming Language](https://doc.rust-lang.org/book/)
-- [The Embedded Rust Book](https://docs.rust-embedded.org/book/index.html)
-- [The Embedonomicon](https://docs.rust-embedded.org/embedonomicon/)
-- [The Rust on ESP Book](https://esp-rs.github.io/book/)
-- [Embedded Rust (no_std) on Espressif](https://esp-rs.github.io/no_std-training/)
+This fix is **essential** for the T-Deck hardware because:
+- T-Deck uses ESP32-S3 with 8MB external PSRAM
+- PSRAM is used for display buffers and image processing
+- Without this fix, the device experiences crashes and memory corruption
 
-## Crates
+## Files Changed
 
-This repository is home to a number of different packages; for more information regarding a particular package, please refer to its `README.md` and/or documentation.
+```
+esp-hal/src/soc/esp32s3/psram.rs
+├── Fixed PSRAM start address calculation
+├── Corrected MMU table iteration
+└── Proper unmapped page handling
+```
 
-## Contributing
+## Status
 
-We have a number of living documents to aid contributing to the project, please give these a read before modifying code:
+- **Bug Severity**: Critical - prevents hardware from functioning
+- **Upstream Status**: Should be contributed back to esp-rs/esp-hal
+- **Maintenance**: Temporary fork until upstream accepts fix
 
-- [API-GUIDELINES](https://github.com/esp-rs/esp-hal/blob/main/documentation/API-GUIDELINES.md)
-- [CONTRIBUTING-GUIDE](https://github.com/esp-rs/esp-hal/blob/main/documentation/CONTRIBUTING.md)
+## Building
+
+```bash
+cd esp-hal
+cargo build --target xtensa-esp32s3-none-elf
+```
+
+## Integration
+
+Used by the Symltech project via:
+
+```toml
+[dependencies]
+esp-hal = { git = "https://github.com/orual/esp-hal", branch = "main" }
+```
+
+## Testing
+
+The fix can be verified by:
+
+1. **Memory Stability Tests**: Extended PSRAM allocation/deallocation cycles
+2. **Hardware Verification**: Running on actual T-Deck hardware with PSRAM operations
+3. **Stress Testing**: Large buffer operations and display rendering
+
+```rust
+// Test PSRAM allocation
+fn test_psram_stability() {
+    for _ in 0..1000 {
+        let buffer = psram_allocate(1024 * 1024); // 1MB allocation
+        // Use buffer for operations
+        psram_deallocate(buffer);
+    }
+}
+```
+
+## Future Plans
+
+1. **Upstream Contribution**: Submit PR to esp-rs/esp-hal with proper testing
+2. **Additional Testing**: Ensure fix works across all ESP32-S3 variants
+3. **Remove Fork**: Once upstream accepts the fix
+
+## Verification
+
+To verify the fix is working:
+
+```bash
+# Build and flash Symltech firmware
+cd symltech-communicator
+just build neema
+just flash neema
+
+# Monitor for PSRAM-related crashes (should not occur)
+just monitor
+```
 
 ## License
 
-Licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
-
-### Contribution notice
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
-the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without
-any additional terms or conditions.
+Maintains the same license as the original esp-hal project (MIT OR Apache-2.0).
